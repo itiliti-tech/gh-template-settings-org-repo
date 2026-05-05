@@ -35,7 +35,8 @@
     "editor.formatOnSave": true
   },
 
-  "git.branchProtectionPrompt": "prompt",
+  "git.branchProtection": ["main"],
+  "git.branchProtectionPrompt": "alwaysCommitToNewBranch",
   "github.branchProtection": true,
   "githubIssues.workingBaseBranch": "prompt",
   "githubPullRequests.defaultMergeMethod": "squash",
