@@ -1,0 +1,73 @@
+name: Generate PDFs
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string (e.g. 1.2.0)"
+        required: false
+        default: ""
+
+jobs:
+  generate-pdfs:
+    name: Generate PDFs and publish release artifact
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          INPUT="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            VERSION="$INPUT"
+          elif echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION="$TAG"
+          else
+            VERSION=""
+          fi
+          DATE=$(date +%Y-%m-%d)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION  date: $DATE"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Generate PDFs
+        run: |
+          ARGS=(--output-dir dist --date "${{ steps.version.outputs.date }}")
+          if [ -n "${{ steps.version.outputs.version }}" ]; then
+            ARGS+=(--version "${{ steps.version.outputs.version }}")
+          fi
+          python scripts/convert_templates_to_pdf.py "${ARGS[@]}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy-pdfs-${{ steps.version.outputs.version || github.sha }}
+          path: dist/*.pdf
+          retention-days: 90
+
+      - name: Attach PDFs to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.pdf
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
