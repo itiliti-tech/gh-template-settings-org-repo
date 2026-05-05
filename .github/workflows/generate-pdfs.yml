@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Resolve version
         id: version
@@ -44,7 +44,7 @@ jobs:
           echo "Resolved version: $VERSION  date: $DATE"
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -60,10 +60,10 @@ jobs:
           python scripts/convert_templates_to_pdf.py "${ARGS[@]}"
 
       - name: Create GitHub Release and upload PDFs
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && steps.version.outputs.version != '')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.pdf
-          tag_name: ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          prerelease: ${{ contains(github.ref_name, '-') || contains(steps.version.outputs.version, '-') }}
           generate_release_notes: true

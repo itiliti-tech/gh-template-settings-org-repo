@@ -69,13 +69,17 @@ Scans a GitHub organization's current settings, diffs them against the policy ba
 prompts for approval, and applies changes idempotently via the GitHub REST API.
 
 **Requires:** a GitHub personal access token with `admin:org` and `repo` scopes.  
-Set as `GITHUB_TOKEN` env var or pass `--token`.
+Set as `GITHUB_TOKEN` env var, pass `--token`, or use `--use-gh-cli` to pull the token
+from an active [`gh` CLI](https://cli.github.com/) session automatically.
 
 #### Using `uv` (recommended)
 
 ```bash
-# Interactive scan + apply
+# Interactive scan + apply (prompts for token source if not set)
 uv run scripts/github_policy_apply.py --org YOUR_ORG
+
+# Use token from active gh CLI session (no prompt)
+uv run scripts/github_policy_apply.py --org YOUR_ORG --use-gh-cli
 
 # Include repo-level settings
 uv run scripts/github_policy_apply.py --org YOUR_ORG --repo YOUR_REPO
