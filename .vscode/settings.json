@@ -1,0 +1,44 @@
+{
+  "files.encoding": "utf8",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  // Language-specific Settings
+  "[powershell]": {
+    "files.encoding": "utf8bom",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true
+  },
+  "[yaml]": {
+    "editor.tabSize": 2
+  },
+  "[markdown]": {
+    "editor.tabSize": 3,
+    "editor.formatOnSave": true,
+    "files.trimTrailingWhitespace": false
+  },
+  "[editorconfig]": {
+    "editor.formatOnSave": true
+  },
+  "[toml]": {
+    "editor.formatOnSave": true
+  },
+  "[gitignore]": {
+    "editor.formatOnSave": true
+  },
+  "[gitattributes]": {
+    "editor.formatOnSave": true
+  },
+
+  "git.branchProtectionPrompt": "prompt",
+  "github.branchProtection": true,
+  "githubIssues.workingBaseBranch": "prompt",
+  "githubPullRequests.defaultMergeMethod": "squash",
+  "githubPullRequests.webviewRefreshInterval": 30,
+  "githubPullRequests.postDone": "checkoutDefaultBranchAndPull"
+}
