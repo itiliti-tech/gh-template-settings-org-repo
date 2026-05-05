@@ -59,9 +59,14 @@ jobs:
 
       - name: Create GitHub Release and upload PDFs
         if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && steps.version.outputs.version != '')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.pdf
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.version }}
-          prerelease: ${{ contains(github.ref_name, '-') || contains(steps.version.outputs.version, '-') }}
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.version }}"
+          ARGS=()
+          if echo "$TAG" | grep -q '-'; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "$TAG" dist/*.pdf \
+            --generate-notes \
+            "${ARGS[@]}"
