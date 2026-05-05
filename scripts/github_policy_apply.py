@@ -28,6 +28,9 @@ Usage:
     # Non-interactive (auto-approve all pending changes):
     uv run scripts/github_policy_apply.py --org ORG_NAME --yes
 
+    # Set allowed_actions mode (all / none / selected; prompted interactively if omitted):
+    uv run scripts/github_policy_apply.py --org ORG_NAME --allowed-actions selected
+
 Token (required scopes: admin:org, repo):
     Set GITHUB_TOKEN env var  OR  pass --token ghp_...
 """
@@ -437,8 +440,14 @@ def scan_org(client: GitHubClient, org: str) -> dict[str, Any]:
         _warn(f"  Could not fetch workflow permissions (HTTP {code})")
 
     code, data = client.get(f"/orgs/{org}/rulesets")
-    result["rulesets"] = data if code == 200 else []
-    if code != 200:
+    if code == 200:
+        full_rulesets = []
+        for rs in (data or []):
+            rs_code, rs_full = client.get(f"/orgs/{org}/rulesets/{rs['id']}")
+            full_rulesets.append(rs_full if rs_code == 200 else rs)
+        result["rulesets"] = full_rulesets
+    else:
+        result["rulesets"] = []
         _warn(f"  Could not fetch rulesets (HTTP {code})")
 
     code, data = client.get(f"/orgs/{org}/properties/schema")
@@ -469,8 +478,19 @@ def scan_repo(client: GitHubClient, org: str, repo: str) -> dict[str, Any]:
 ChangeRecord = dict[str, Any]
 
 
-def compute_org_changes(current: dict[str, Any]) -> list[ChangeRecord]:
-    """Compare current org state against the baseline; return a list of changes."""
+def compute_org_changes(
+    current: dict[str, Any],
+    allowed_actions: str = "none",
+) -> list[ChangeRecord]:
+    """Compare current org state against the baseline; return a list of changes.
+
+    Args:
+        current:         Output of scan_org().
+        allowed_actions: One of 'all', 'none', 'selected'.  Controls which
+                         Actions permission records are included.  The
+                         selected-actions sub-settings are only included (and
+                         applied) when this is 'selected'.
+    """
     changes: list[ChangeRecord] = []
     org_data = current.get("org", {})
 
@@ -496,7 +516,9 @@ def compute_org_changes(current: dict[str, Any]) -> list[ChangeRecord]:
 
     # ── PUT /orgs/{org}/actions/permissions ──────────────────────────────────
     ap = current.get("actions_permissions", {})
-    for field, desired_val in ACTIONS_PERMISSION_SETTINGS.items():
+    # Merge baseline with the runtime --allowed-actions choice
+    effective_ap_settings = {**ACTIONS_PERMISSION_SETTINGS, "allowed_actions": allowed_actions}
+    for field, desired_val in effective_ap_settings.items():
         curr_val = ap.get(field)
         changes.append({
             "section": "Actions",
@@ -512,9 +534,11 @@ def compute_org_changes(current: dict[str, Any]) -> list[ChangeRecord]:
         })
 
     # ── PUT /orgs/{org}/actions/permissions/selected-actions ─────────────────
+    # Only meaningful (and applicable) when allowed_actions = 'selected'
     sa = current.get("actions_selected", {})
     for field, desired_val in ACTIONS_SELECTED_SETTINGS.items():
         curr_val = sa.get(field)
+        not_selected_mode = allowed_actions != "selected"
         changes.append({
             "section": "Actions",
             "label": f"Allowed actions: {field.replace('_', ' ')}",
@@ -522,9 +546,13 @@ def compute_org_changes(current: dict[str, Any]) -> list[ChangeRecord]:
             "api_endpoint": "PUT /orgs/{org}/actions/permissions/selected-actions",
             "current": curr_val,
             "desired": desired_val,
-            "note": "Applied only when allowed_actions = 'selected'",
+            "note": (
+                f"Skipped — only applies when --allowed-actions=selected (current: {allowed_actions})"
+                if not_selected_mode
+                else ""
+            ),
             "ghas_required": False,
-            "skip": curr_val == desired_val,
+            "skip": not_selected_mode or curr_val == desired_val,
             "_apply_group": "actions_selected",
         })
 
@@ -614,16 +642,44 @@ def compute_repo_changes(current: dict[str, Any]) -> list[ChangeRecord]:
 
 
 def _ruleset_matches(existing: dict | None, desired: dict) -> bool:
-    """Shallow structural comparison — checks target, enforcement, and rule types."""
+    """Deep comparison: target, enforcement, rules (type + parameters), and conditions."""
     if not existing:
         return False
     if existing.get("target") != desired["target"]:
         return False
     if existing.get("enforcement") != desired["enforcement"]:
         return False
-    existing_types = {r["type"] for r in (existing.get("rules") or [])}
-    desired_types = {r["type"] for r in desired["rules"]}
-    return existing_types == desired_types
+
+    # Compare rules by type and parameters (order-independent)
+    def _norm_rules(rules: list) -> list:
+        return sorted(
+            [{"type": r["type"], "parameters": r.get("parameters") or {}} for r in rules],
+            key=lambda r: r["type"],
+        )
+
+    if _norm_rules(existing.get("rules") or []) != _norm_rules(desired.get("rules") or []):
+        return False
+
+    # Compare conditions (normalize include/exclude lists to sorted sets)
+    def _norm_conditions(cond: dict | None) -> dict:
+        if not cond:
+            return {}
+        out: dict = {}
+        if "ref_name" in cond:
+            out["ref_name"] = {
+                "include": sorted(cond["ref_name"].get("include") or []),
+                "exclude": sorted(cond["ref_name"].get("exclude") or []),
+            }
+        if "repository_name" in cond:
+            out["repository_name"] = {
+                "include": sorted(cond["repository_name"].get("include") or []),
+                "exclude": sorted(cond["repository_name"].get("exclude") or []),
+            }
+        if "repository_property" in cond:
+            out["repository_property"] = cond["repository_property"]
+        return out
+
+    return _norm_conditions(existing.get("conditions")) == _norm_conditions(desired.get("conditions"))
 
 
 def _property_matches(existing: dict | None, desired: dict) -> bool:
@@ -991,6 +1047,43 @@ def _warn(msg: str) -> None:
     print(_c(f"  WARN: {msg}", _YELLOW))
 
 
+def _prompt_allowed_actions(non_interactive: bool = False) -> str:
+    """Prompt the user to choose an allowed_actions mode, or return 'none' silently."""
+    if non_interactive:
+        print(_c("  allowed_actions  : none (default — use --allowed-actions to override)", _DIM))
+        return "none"
+
+    print(f"\n  {'─' * 60}")
+    print(_c("  GitHub Actions — allowed_actions setting", _BOLD))
+    print(f"  {'─' * 60}")
+    print("  Controls which Actions are permitted to run in the org.\n")
+    print("    [1] none     — Disable all Actions org-wide")
+    print("    [2] all      — Allow all Actions (GitHub-owned and third-party)")
+    print("    [3] selected — Allow GitHub-owned + verified + explicit allowlist")
+    print()
+
+    _LABELS = {"1": "none", "2": "all", "3": "selected",
+               "none": "none", "all": "all", "selected": "selected"}
+
+    while True:
+        try:
+            ans = input("  Choice [1/2/3 or none/all/selected] (default: none): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\n  Interrupted — defaulting to 'none'.")
+            return "none"
+
+        if ans == "" or ans not in _LABELS:
+            if ans == "":
+                print(_c("  → none (default)", _CYAN))
+                return "none"
+            print("  Please enter 1, 2, 3, none, all, or selected.")
+            continue
+
+        choice = _LABELS[ans]
+        print(_c(f"  → {choice}", _CYAN))
+        return choice
+
+
 def _get_token(arg_token: str | None) -> str:
     token = arg_token or os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
@@ -1063,6 +1156,18 @@ def main() -> None:
         help="Auto-approve all pending changes (non-interactive)",
     )
     parser.add_argument(
+        "--allowed-actions",
+        choices=["all", "none", "selected"],
+        default=None,
+        metavar="MODE",
+        help=(
+            "Set the org allowed_actions value: 'all', 'none', or 'selected'. "
+            "Prompted interactively when not specified (unless --yes or --dry-run, "
+            "which default to 'none').  The selected-actions allowlist sub-settings "
+            "are only evaluated and applied when this is 'selected'."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Scan and display proposed changes but do not apply anything",
@@ -1090,8 +1195,12 @@ def main() -> None:
         print(f"\n  Loading settings from: {_c(args.settings_file, _CYAN)}")
         org_changes, repo_changes = import_settings(args.settings_file)
     else:
+        # Resolve --allowed-actions: prompt interactively if not supplied on CLI
+        allowed_actions = args.allowed_actions or _prompt_allowed_actions(
+            non_interactive=args.yes or args.dry_run
+        )
         current_org = scan_org(client, args.org)
-        org_changes = compute_org_changes(current_org)
+        org_changes = compute_org_changes(current_org, allowed_actions)
 
         repo_changes: list[ChangeRecord] = []
         if args.repo:
