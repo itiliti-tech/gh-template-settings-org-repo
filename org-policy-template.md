@@ -37,6 +37,8 @@ Configure under **Organization Settings → Member privileges**.
 | Members can invite outside collaborators | **No**            | Only org admins should add external users; prevents ungoverned access grants |
 | Members can create teams                 | **No**            | Team management should be admin-controlled to maintain a clean access model  |
 
+> **API note:** `members_can_invite_outside_collaborators` and `members_can_create_teams` are readable via `GET /orgs/{org}` but are **not writable** via `PATCH /orgs/{org}`. Configure these under **Organization Settings → Member privileges** in the GitHub UI.
+
 ---
 
 ## 3. Actions (CI/CD) Permissions
@@ -175,6 +177,8 @@ Configure under **Organization Settings → Authentication security** and **Orga
 | --------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
 | Require two-factor authentication | **Yes**           | Members and outside collaborators who do not have 2FA enabled are removed from the org automatically |
 
+> **API note:** 2FA enforcement is readable via `two_factor_requirement_enabled` in `GET /orgs/{org}` but **cannot be set via the REST API**. Enable under **Organization Settings → Authentication security**. The `github_policy_apply.py` script scans this field and flags non-compliance but will not attempt to patch it.
+>
 > This is the single most impactful authentication control available at the org level.
 
 ### 7.2 Commit Signoff and Identity
@@ -195,6 +199,8 @@ Restrict destructive repository operations to org admins only.
 | Members can create public repositories      | No                | Accidental public exposure of internal code                               |
 | Members can create public Pages sites       | No                | Accidental public exposure of internal content                            |
 
+> **API note:** `members_can_delete_repositories` and `members_can_change_repo_visibility` appear in the `GET /orgs/{org}` response but are **not writable** via `PATCH /orgs/{org}` on any plan. Configure these under **Organization Settings → Member privileges** in the GitHub UI. The `github_policy_apply.py` script scans these fields and flags non-compliance but will not attempt to patch them.
+>
 > **Action:** Restricting these settings to admins-only closes a significant data-loss and exposure risk with no day-to-day workflow impact for most contributors.
 
 ### 7.4 Deploy Keys

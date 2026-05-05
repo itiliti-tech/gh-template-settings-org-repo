@@ -129,18 +129,6 @@ ORG_PATCH_SETTINGS: dict[str, dict[str, Any]] = {
         "label": "Members can fork private repos",
         "note": "Prevent code leaving org via forks without approval",
     },
-    "members_can_invite_outside_collaborators": {
-        "desired": False,
-        "section": "Member Permissions",
-        "label": "Members can invite outside collaborators",
-        "note": "Only org admins should add external users",
-    },
-    "members_can_create_teams": {
-        "desired": False,
-        "section": "Member Permissions",
-        "label": "Members can create teams",
-        "note": "Team management should be admin-controlled",
-    },
     # ── Authentication & access ───────────────────────────────────────────────
     "web_commit_signoff_required": {
         "desired": True,
@@ -148,17 +136,43 @@ ORG_PATCH_SETTINGS: dict[str, dict[str, Any]] = {
         "label": "Require web-based commit signoff",
         "note": "Adds Signed-off-by trailer to web UI commits (DCO compliance)",
     },
+}
+
+# Settings that appear in GET /orgs/{org} but are silently ignored by
+# PATCH /orgs/{org} — must be configured manually in the GitHub UI.
+# The script scans and reports on these but does NOT attempt to apply them.
+ORG_MANUAL_SETTINGS: dict[str, dict[str, Any]] = {
+    # ── Member Permissions (UI-only) ─────────────────────────────────────────
+    "members_can_invite_outside_collaborators": {
+        "desired": False,
+        "section": "Member Permissions",
+        "label": "Members can invite outside collaborators",
+        "note": "Org Settings → Member privileges — cannot be set via REST API",
+    },
+    "members_can_create_teams": {
+        "desired": False,
+        "section": "Member Permissions",
+        "label": "Members can create teams",
+        "note": "Org Settings → Member privileges — cannot be set via REST API",
+    },
+    # ── Auth & Access (UI-only) ──────────────────────────────────────────────
+    "two_factor_requirement_enabled": {
+        "desired": True,
+        "section": "Auth & Access",
+        "label": "Require two-factor authentication",
+        "note": "Org Settings → Authentication security — cannot be set via REST API",
+    },
     "members_can_delete_repositories": {
         "desired": False,
         "section": "Auth & Access",
         "label": "Members can delete repos",
-        "note": "Restricts destructive operation to org admins; may need Enterprise plan",
+        "note": "Org Settings → Member privileges — cannot be set via REST API",
     },
     "members_can_change_repo_visibility": {
         "desired": False,
         "section": "Auth & Access",
         "label": "Members can change repo visibility",
-        "note": "Prevents member from making private repos public",
+        "note": "Org Settings → Member privileges — cannot be set via REST API",
     },
 }
 
@@ -376,11 +390,15 @@ class GitHubClient:
 _REQUIRED_SCOPES = {"admin:org", "repo"}
 
 
-def check_token(client: GitHubClient) -> None:
-    """Verify the token is valid and has the required OAuth scopes."""
+def check_token(client: GitHubClient) -> set[str]:
+    """Verify the token is valid and has the required OAuth scopes.
+
+    Returns the set of missing required scopes (empty = all good).
+    Calls _die() on auth failure (401/non-200).
+    """
     resp = client.get_raw("/user")
     if resp.status_code == 401:
-        _die("Token is invalid or expired (HTTP 401).")
+        return {"__invalid__"}   # sentinel: token rejected
     if resp.status_code != 200:
         _die(f"Could not verify token: HTTP {resp.status_code}")
 
@@ -399,16 +417,10 @@ def check_token(client: GitHubClient) -> None:
         print()
         for s in sorted(missing):
             print(_c(f"  ✗  Missing required scope: {s}", _RED))
-        print()
-        print(_c(
-            "  WARNING: One or more required scopes are missing.\n"
-            "  Some API calls will fail with 403 or 404.\n"
-            "  Re-generate the token with 'admin:org' and 'repo' scopes.",
-            _YELLOW,
-        ))
-        print()
     else:
         print(_c("  ✓  Required scopes present (admin:org, repo)", _GREEN))
+
+    return missing
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +524,24 @@ def compute_org_changes(
             # per-repo as needed. Non-GHAS settings skip when already correct.
             "skip": curr_val == desired_val or meta.get("ghas_required", False),
             "_apply_group": "org_patch",
+        })
+
+    # ── Manual-only settings (scanned for display; never patched via API) ─────
+    for field, meta in ORG_MANUAL_SETTINGS.items():
+        curr_val = org_data.get(field)
+        desired_val = meta["desired"]
+        changes.append({
+            "section": meta["section"],
+            "label": meta["label"],
+            "setting": field,
+            "api_endpoint": "UI only",
+            "current": curr_val,
+            "desired": desired_val,
+            "note": meta.get("note", ""),
+            "ghas_required": False,
+            "manual_only": True,
+            "skip": curr_val == desired_val,
+            "_apply_group": "manual",
         })
 
     # ── PUT /orgs/{org}/actions/permissions ──────────────────────────────────
@@ -642,7 +672,16 @@ def compute_repo_changes(current: dict[str, Any]) -> list[ChangeRecord]:
 
 
 def _ruleset_matches(existing: dict | None, desired: dict) -> bool:
-    """Deep comparison: target, enforcement, rules (type + parameters), and conditions."""
+    """Deep comparison: target, enforcement, rules, and conditions.
+
+    Rules: exact set of types required; parameters compared only on keys present
+    in the desired rule (GitHub may add its own defaults — we don't flag those).
+    List-valued parameters are sorted before comparison.
+
+    Conditions: ref_name / repository_name include/exclude lists are sorted.
+    repository_property include/exclude objects are normalised (sorted property_values).
+    Only condition keys present in the desired definition are checked.
+    """
     if not existing:
         return False
     if existing.get("target") != desired["target"]:
@@ -650,36 +689,69 @@ def _ruleset_matches(existing: dict | None, desired: dict) -> bool:
     if existing.get("enforcement") != desired["enforcement"]:
         return False
 
-    # Compare rules by type and parameters (order-independent)
-    def _norm_rules(rules: list) -> list:
-        return sorted(
-            [{"type": r["type"], "parameters": r.get("parameters") or {}} for r in rules],
-            key=lambda r: r["type"],
-        )
+    # ── Rules ──────────────────────────────────────────────────────────────
+    existing_by_type = {r["type"]: r for r in (existing.get("rules") or [])}
+    desired_by_type = {r["type"]: r for r in (desired.get("rules") or [])}
 
-    if _norm_rules(existing.get("rules") or []) != _norm_rules(desired.get("rules") or []):
+    if set(existing_by_type.keys()) != set(desired_by_type.keys()):
         return False
 
-    # Compare conditions (normalize include/exclude lists to sorted sets)
+    def _norm_val(v: Any) -> Any:
+        return sorted(v) if isinstance(v, list) else v
+
+    for rtype, drule in desired_by_type.items():
+        erule = existing_by_type[rtype]
+        dparams = drule.get("parameters") or {}
+        eparams = erule.get("parameters") or {}
+        # Only compare keys we explicitly set in desired
+        for key, dval in dparams.items():
+            if _norm_val(dval) != _norm_val(eparams.get(key)):
+                return False
+
+    # ── Conditions ─────────────────────────────────────────────────────────
+    def _norm_ref(ref: dict) -> dict:
+        return {
+            "include": sorted(ref.get("include") or []),
+            "exclude": sorted(ref.get("exclude") or []),
+        }
+
+    def _norm_prop_list(items: list) -> list:
+        return sorted(
+            [
+                {
+                    "name": p["name"],
+                    "source": p.get("source", ""),
+                    "property_values": sorted(p.get("property_values") or []),
+                }
+                for p in items
+            ],
+            key=lambda p: p["name"],
+        )
+
     def _norm_conditions(cond: dict | None) -> dict:
         if not cond:
             return {}
         out: dict = {}
         if "ref_name" in cond:
-            out["ref_name"] = {
-                "include": sorted(cond["ref_name"].get("include") or []),
-                "exclude": sorted(cond["ref_name"].get("exclude") or []),
-            }
+            out["ref_name"] = _norm_ref(cond["ref_name"])
         if "repository_name" in cond:
-            out["repository_name"] = {
-                "include": sorted(cond["repository_name"].get("include") or []),
-                "exclude": sorted(cond["repository_name"].get("exclude") or []),
-            }
+            out["repository_name"] = _norm_ref(cond["repository_name"])
         if "repository_property" in cond:
-            out["repository_property"] = cond["repository_property"]
+            rp = cond["repository_property"]
+            out["repository_property"] = {
+                "include": _norm_prop_list(rp.get("include") or []),
+                "exclude": _norm_prop_list(rp.get("exclude") or []),
+            }
         return out
 
-    return _norm_conditions(existing.get("conditions")) == _norm_conditions(desired.get("conditions"))
+    desired_conds = _norm_conditions(desired.get("conditions"))
+    existing_conds = _norm_conditions(existing.get("conditions"))
+    # Only check condition keys present in desired
+    for key, dval in desired_conds.items():
+        if existing_conds.get(key) != dval:
+            return False
+
+    return True
 
 
 def _property_matches(existing: dict | None, desired: dict) -> bool:
@@ -730,10 +802,18 @@ def display_changes(changes: list[ChangeRecord], title: str) -> None:
         c for c in changes
         if c.get("ghas_required") and c["current"] != c["desired"]
     ]
-    pending = [c for c in changes if not c["skip"]]
+    # Manual-only items that need attention (differ from desired)
+    manual_needed = [
+        c for c in changes
+        if c.get("manual_only") and c["current"] != c["desired"]
+    ]
+    # Pending API-writable changes (excludes manual-only regardless of skip flag)
+    pending = [c for c in changes if not c["skip"] and not c.get("manual_only")]
     ok_count = sum(
         1 for c in changes
-        if c["skip"] and not (c.get("ghas_required") and c["current"] != c["desired"])
+        if c["skip"]
+        and not (c.get("ghas_required") and c["current"] != c["desired"])
+        and not c.get("manual_only")
     )
 
     print(f"\n{_SEP}")
@@ -748,7 +828,7 @@ def display_changes(changes: list[ChangeRecord], title: str) -> None:
     print(_c(header, _DIM))
     print(_c(_SEP, _DIM))
 
-    if not pending and not ghas_advisory:
+    if not pending and not ghas_advisory and not manual_needed:
         print(_c(f"  ✓  All {len(changes)} settings already match the baseline.", _GREEN))
         return
 
@@ -776,6 +856,20 @@ def display_changes(changes: list[ChangeRecord], title: str) -> None:
             )
             print(row)
 
+    if manual_needed:
+        if pending or ghas_advisory:
+            print()
+        print(_c("  ── Manual configuration required (not settable via REST API) ──", _YELLOW))
+        for c in manual_needed:
+            curr_s = f"{_fmt(c['current']):<{col['c']}}"
+            des_s = f"{_fmt(c['desired']):<{col['d']}}"
+            row = (
+                f"  {c['section']:<{col['s']}}  {c['label']:<{col['l']}}  "
+                f"{_c(curr_s, _RED)}  {_c(des_s, _GREEN)}  "
+                f"{_c(c.get('note', ''), _YELLOW)}"
+            )
+            print(row)
+
     print()
     if ok_count:
         print(_c(f"  ✓  {ok_count} setting(s) already match — no change needed.", _GREEN))
@@ -785,6 +879,12 @@ def display_changes(changes: list[ChangeRecord], title: str) -> None:
             "require Advanced Security license for private repos. "
             "Enable per-repo under Settings → Code security.",
             _RED,
+        ))
+    if manual_needed:
+        print(_c(
+            f"  ⚠  {len(manual_needed)} setting(s) require manual configuration in the GitHub UI "
+            "(not writable via REST API).",
+            _YELLOW,
         ))
     if pending:
         print(_c(f"  {len(pending)} change(s) required.", _YELLOW))
@@ -872,8 +972,12 @@ def prompt_changes(
     title: str,
     yes_all: bool = False,
 ) -> list[ChangeRecord]:
-    """Walk the user through each pending change and collect approvals."""
-    pending = [c for c in changes if not c["skip"]]
+    """Walk the user through each pending API-writable change and collect approvals.
+
+    Manual-only items are excluded from the interactive prompt — they are only
+    shown in the summary display.
+    """
+    pending = [c for c in changes if not c["skip"] and not c.get("manual_only")]
     if not pending:
         print(f"\n  {title}: all settings already match — nothing to apply.")
         return []
@@ -948,6 +1052,20 @@ def apply_org_changes(client: GitHubClient, org: str, approved: list[ChangeRecor
         payload = {c["setting"]: c["desired"] for c in groups["org_patch"]}
         code, resp = client.patch(f"/orgs/{org}", payload)
         _report("PATCH /orgs/{org}", list(payload.keys()), code, resp)
+        # Verify each field actually round-tripped — some require Enterprise plan
+        if code in (200, 201, 204):
+            vcode, vdata = client.get(f"/orgs/{org}")
+            if vcode == 200:
+                for field, desired_val in payload.items():
+                    actual_val = vdata.get(field)
+                    if actual_val != desired_val:
+                        print(_c(
+                            f"  ⚠  {field}: value unchanged after PATCH "
+                            f"(still: {_fmt(actual_val)}) — "
+                            "field may require additional permissions; "
+                            "check token scopes and org plan",
+                            _YELLOW,
+                        ))
 
     # 2. Actions permissions (sets allowed_actions = "selected")
     # GitHub API: PUT /orgs/{org}/actions/permissions (not PATCH)
@@ -996,6 +1114,18 @@ def apply_org_changes(client: GitHubClient, org: str, approved: list[ChangeRecor
                 print(f"  ✓  {action} ruleset '{rs_name}' (id={resp.get('id', existing_id)})")
             else:
                 _report_error(f"{action} ruleset '{rs_name}'", code, resp)
+
+    # 7. Manual-only reminders (never sent to API)
+    if "manual" in groups:
+        manual_items = [c for c in groups["manual"] if c["current"] != c["desired"]]
+        if manual_items:
+            print(f"\n{_SEP}")
+            print(_c("  ⚠  Manual configuration required in GitHub UI:", _YELLOW))
+            for c in manual_items:
+                print(_c(
+                    f"     • {c['label']}: set to {_fmt(c['desired'])}  —  {c.get('note', '')}",
+                    _YELLOW,
+                ))
 
 
 def apply_repo_changes(
@@ -1084,15 +1214,95 @@ def _prompt_allowed_actions(non_interactive: bool = False) -> str:
         return choice
 
 
-def _get_token(arg_token: str | None) -> str:
-    token = arg_token or os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token:
-        import getpass
-        print("\n  No token found in --token or GITHUB_TOKEN.")
-        token = getpass.getpass("  GitHub personal access token: ").strip()
-    if not token:
-        _die("A GitHub personal access token is required.")
-    return token
+def _gh_cli_token() -> str:
+    """Try to obtain a token from the `gh` CLI. Returns empty string on failure."""
+    import shutil
+    import subprocess
+    if not shutil.which("gh"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _get_token(arg_token: str | None, use_gh_cli: bool = False) -> str:
+    """Resolve the GitHub token using a priority chain:
+
+    1. --token flag
+    2. GITHUB_TOKEN env var
+    3. ``gh auth token`` (silent) — only when --use-gh-cli is set
+    4. Interactive prompt: offer gh auth login or manual paste
+    """
+    # 1 & 2: explicit sources
+    token = (arg_token or os.environ.get("GITHUB_TOKEN", "")).strip()
+    if token:
+        return token
+
+    # 3: gh CLI silent — only when caller opted in
+    if use_gh_cli:
+        token = _gh_cli_token()
+        if token:
+            print(_c("  Token source : gh CLI (gh auth token)", _DIM))
+            return token
+        _die("--use-gh-cli specified but 'gh auth token' returned no token. "
+             "Run 'gh auth login' first.")
+
+    # 4: interactive
+    import getpass
+    import shutil
+    import subprocess
+    gh_available = bool(shutil.which("gh"))
+    print()
+    print(_c("  No GitHub token found in --token or GITHUB_TOKEN.", _YELLOW))
+    print("  Options:")
+    if gh_available:
+        print("    [1] Use 'gh auth token' (gh CLI)  (recommended)")
+        print("    [2] Paste a personal access token manually")
+        print("    [3] Abort")
+        labels = {"1": "gh", "2": "paste", "3": "abort"}
+    else:
+        print("    [1] Paste a personal access token manually")
+        print("    [2] Abort")
+        labels = {"1": "paste", "2": "abort"}
+    print()
+    while True:
+        try:
+            choice = input(f"  Choice [{'/' .join(labels)}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            _die("Aborted.")
+        action = labels.get(choice)
+        if action == "gh":
+            token = _gh_cli_token()
+            if token:
+                print(_c("  Token acquired from gh CLI.", _GREEN))
+                return token
+            print()
+            print(_c("  No active gh session. Running 'gh auth login'...", _YELLOW))
+            print()
+            ret = subprocess.run(["gh", "auth", "login"]).returncode
+            if ret != 0:
+                print(_c("  gh auth login failed.", _RED))
+                continue
+            token = _gh_cli_token()
+            if not token:
+                print(_c("  Could not retrieve token from gh CLI after login.", _RED))
+                continue
+            print(_c("  Token acquired from gh CLI.", _GREEN))
+            return token
+        elif action == "paste":
+            token = getpass.getpass("  Paste token: ").strip()
+            if token:
+                return token
+            print(_c("  No token entered.", _RED))
+        elif action == "abort":
+            _die("Aborted.")
+        else:
+            print(f"  Please enter {', '.join(labels)}.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1141,6 +1351,11 @@ def main() -> None:
         help="GitHub personal access token (default: $GITHUB_TOKEN)",
     )
     parser.add_argument(
+        "--use-gh-cli",
+        action="store_true",
+        help="Acquire the token silently from the gh CLI ('gh auth token') without prompting",
+    )
+    parser.add_argument(
         "--export",
         metavar="FILE",
         help="Export proposed changes to a JSON file and exit (edit, then use --settings-file)",
@@ -1174,7 +1389,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    token = _get_token(args.token)
+    token = _get_token(args.token, use_gh_cli=args.use_gh_cli)
     client = GitHubClient(token)
 
     print(f"\n{'═' * 100}")
@@ -1187,8 +1402,65 @@ def main() -> None:
     if args.dry_run:
         print(_c("  Mode         : DRY RUN — no changes will be written", _YELLOW))
 
-    # ── Token validation ─────────────────────────────────────────────────────
-    check_token(client)
+    # ── Token validation (with retry if scopes missing) ──────────────────────
+    while True:
+        missing_scopes = check_token(client)
+        if not missing_scopes:
+            break
+
+        invalid = "__invalid__" in missing_scopes
+        if invalid:
+            print(_c("  Token is invalid or expired (HTTP 401).", _RED))
+        else:
+            print()
+            print(_c(
+                "  WARNING: One or more required scopes are missing.\n"
+                "  Some API calls will fail with 403 or 404.",
+                _YELLOW,
+            ))
+
+        # Non-interactive modes: hard-fail
+        if args.yes or args.dry_run:
+            _die("Token is missing required scopes (admin:org, repo). "
+                 "Re-run with a valid token.")
+
+        gh_available = bool(_gh_cli_token() or __import__('shutil').which('gh'))
+        print()
+        print("  Options:")
+        if gh_available:
+            print("    [1] Re-authenticate via 'gh auth login' and retry")
+            print("    [2] Paste a new personal access token")
+        else:
+            print("    [1] Paste a new personal access token")
+        print("    [q] Abort")
+        print()
+        try:
+            ans = input("  Choice: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            _die("Aborted.")
+
+        if ans == "q":
+            _die("Aborted — token does not have required scopes.")
+
+        if gh_available and ans == "1":
+            import subprocess as _sp
+            _sp.run(["gh", "auth", "login"])
+            new_token = _gh_cli_token()
+            if not new_token:
+                print(_c("  Could not retrieve token from gh CLI.", _RED))
+                continue
+        elif (gh_available and ans == "2") or (not gh_available and ans == "1"):
+            import getpass as _gp
+            new_token = _gp.getpass("  Paste token: ").strip()
+            if not new_token:
+                print(_c("  No token entered.", _RED))
+                continue
+        else:
+            print("  Invalid choice.")
+            continue
+
+        client = GitHubClient(new_token)
+        print()
 
     # ── Load settings: from file or by scanning live API ─────────────────────
     if args.settings_file:
@@ -1220,7 +1492,7 @@ def main() -> None:
 
     # ── Count pending changes ─────────────────────────────────────────────────
     all_changes = org_changes + repo_changes
-    pending_count = sum(1 for c in all_changes if not c["skip"])
+    pending_count = sum(1 for c in all_changes if not c["skip"] and not c.get("manual_only"))
 
     if pending_count == 0:
         print(_c("\n  ✓  All settings already match the baseline. Nothing to do.", _GREEN))
