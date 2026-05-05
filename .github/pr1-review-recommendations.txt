@@ -1,0 +1,35 @@
+PR #1 Review Recommendations
+Source: https://github.com/itiliti-tech/gh-template-settings-org-repo/pull/1
+Last compiled: 2026-05-05
+
+Workflow and Release Automation
+- Use GitHub Actions glob patterns for tag triggers; do not use regex syntax in workflow tag filters.
+- Prefer GitHub Releases over workflow artifacts for version-tag publish flows.
+- Pin non-GitHub actions to a full commit SHA (not a mutable major tag) to match supply-chain policy.
+
+Documentation Accuracy
+- Keep README/runtime documentation aligned with implementation details (for example, WeasyPrint vs Edge headless).
+- Ensure install instructions include all imported dependencies so examples run without module errors.
+- Keep CI trigger documentation synchronized with actual workflow branch filters.
+- Keep CLI help text synchronized with current implementation behavior.
+- Avoid documenting defaults that the GitHub API/schema cannot enforce (for example, lifecycle default value).
+
+Policy Applicator Correctness (scripts/github_policy_apply.py)
+- Expand drift detection logic beyond type-level checks. Compare full ruleset details, including parameters, conditions, and bypass actors.
+- Preserve stable identifiers required for update semantics when exporting/importing settings (for example, existing ruleset IDs).
+- When applying from settings files, restore all required metadata (including repository identity) so approved repo changes are actually applied.
+- Include sha_pinning_required in Actions policy scan/apply logic to align with documented org baseline.
+- Include full property metadata (for example, required and description) in custom-property compliance checks.
+- Do not unconditionally skip GHAS-related settings. Apply when licensing and permissions support it, and surface a clear warning otherwise.
+- Extend repository checks so reported compliance includes the full documented baseline, not only a subset of repo feature flags.
+- Extend organization checks so reported compliance includes all controls documented in policy templates.
+
+Cross-Platform Developer Experience
+- Avoid hard-coding a Unix-only Python interpreter path in workspace settings. Use a cross-platform approach or documented override for Windows.
+
+Recommended Guardrails For Future Changes
+- Add tests for workflow trigger patterns (tag and branch conditions).
+- Add regression tests for export/import round trips of policy settings.
+- Add fixture-based tests that assert full ruleset equivalence, not only rule-type equivalence.
+- Add a documentation consistency check in CI for statements that can drift from code (runtime, triggers, defaults).
+- Add a policy-to-implementation coverage checklist to ensure every documented required control is either implemented or explicitly marked unsupported.
