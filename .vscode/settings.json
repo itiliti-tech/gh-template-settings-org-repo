@@ -35,6 +35,9 @@
     "editor.formatOnSave": true
   },
 
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+
   "git.branchProtection": ["main"],
   "git.branchProtectionPrompt": "alwaysCommitToNewBranch",
   "github.branchProtection": true,

@@ -208,7 +208,7 @@ Add topics to all repositories for discoverability and governance filtering.
 
 Create a `CODEOWNERS` file in `.github/` for repositories with defined ownership areas. This allows the org Master Ruleset to optionally enforce code owner review in the future without requiring a ruleset change.
 
-```
+```text
 # .github/CODEOWNERS
 # Default owners for all files
 * @org/team-name
@@ -257,8 +257,8 @@ Use this checklist when creating a new repository under a compliant organization
 ### Within first sprint
 
 - [ ] Configure environments with appropriate protection rules
-  - [ ] Production: 1+ required reviewer, branch restricted to `main`
-  - [ ] Staging: branch restricted to `main`
+   - [ ] Production: 1+ required reviewer, branch restricted to `main`
+   - [ ] Staging: branch restricted to `main`
 - [ ] Move deployment credentials to environment secrets (not repo-level)
 - [ ] Add topics
 - [ ] Create `.github/CODEOWNERS` if the repo has defined ownership areas

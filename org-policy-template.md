@@ -1,6 +1,6 @@
 # GitHub Organization Policy Template
 
-**Recommended baseline settings for any new GitHub organization**
+Recommended baseline settings for any new GitHub organization
 
 ---
 
@@ -52,7 +52,7 @@ Configure under **Organization Settings → Actions → General**.
 | Workflow permissions (default token) | Read repository contents                                | Least-privilege GITHUB_TOKEN default; workflows must explicitly request write scopes |
 | Allow GitHub Actions to create PRs   | No (opt-in per workflow)                                | Prevents unintended automated PR creation                                            |
 
-#### Allowed Actions — Detail
+### Allowed Actions — Detail
 
 Set via **Organization Settings → Actions → General → Allowed actions and reusable workflows**. Select **"Allow GitHub Actions and reusable workflows created by GitHub"** and enable **"Allow actions created by Marketplace verified creators"** for a safe baseline, then extend with an explicit allowlist for any additional third-party actions required.
 
@@ -128,7 +128,7 @@ Org rulesets enforce consistent governance across all repositories without requi
 
 #### Tag Name Pattern
 
-```
+```text
 ^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$
 ```
 
@@ -243,14 +243,14 @@ Use this checklist when provisioning a new organization:
 - [ ] Set default workflow token permissions to read-only
 - [ ] Create org custom property: `lifecycle` (single select: active / experimental / archived / deprecated)
 - [ ] Create **Master Ruleset** targeting `~DEFAULT_BRANCH`, excluding `lifecycle = experimental`
-  - [ ] Block deletion
-  - [ ] Block force push
-  - [ ] Require pull request with 1 approving review
-  - [ ] Require signed commits
-  - [ ] Bypass: Org Admins via pull_request only
+   - [ ] Block deletion
+   - [ ] Block force push
+   - [ ] Require pull request with 1 approving review
+   - [ ] Require signed commits
+   - [ ] Bypass: Org Admins via pull_request only
 - [ ] Create **Tags Ruleset** targeting all tags in all repositories
-  - [ ] Block deletion
-  - [ ] Block force push
-  - [ ] Enforce SemVer name pattern
-  - [ ] No bypasses
+   - [ ] Block deletion
+   - [ ] Block force push
+   - [ ] Enforce SemVer name pattern
+   - [ ] No bypasses
 - [ ] Assign a security manager team (minimum 2 members)

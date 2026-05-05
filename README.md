@@ -27,7 +27,7 @@ repositories to a consistent, secure baseline.
 Converts the policy markdown templates to PDFs using Microsoft Edge headless.
 PDFs include the version and generation date in the document header.
 
-**Options**
+### Options
 
 | Flag           | Description                                | Default            |
 | -------------- | ------------------------------------------ | ------------------ |

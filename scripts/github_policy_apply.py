@@ -405,7 +405,7 @@ def check_token(client: GitHubClient) -> None:
         ))
         print()
     else:
-        print(_c(f"  ✓  Required scopes present (admin:org, repo)", _GREEN))
+        print(_c("  ✓  Required scopes present (admin:org, repo)", _GREEN))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -918,7 +918,7 @@ def apply_org_changes(client: GitHubClient, org: str, approved: list[ChangeRecor
             payload = {"properties": [c["desired"]]}
             code, resp = client.patch(f"/orgs/{org}/properties/schema", payload)
             if code in (200, 201):
-                print(f"  ✓  Custom property 'lifecycle' configured")
+                print("  ✓  Custom property 'lifecycle' configured")
             else:
                 _report_error(f"PATCH properties/schema ({c['label']})", code, resp)
 
