@@ -1,6 +1,5 @@
 # GitHub Policy Templates
 
-[![Lint](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/lint.yml)
 [![Generate PDFs](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/generate-pdfs.yml/badge.svg)](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/generate-pdfs.yml)
 [![Latest Release](https://img.shields.io/github/v/release/itiliti-tech/gh-template-settings-org-repo?label=release)](https://github.com/itiliti-tech/gh-template-settings-org-repo/releases/latest)
 [![Commits since release](https://img.shields.io/github/commits-since/itiliti-tech/gh-template-settings-org-repo/latest?label=unreleased+commits)](https://github.com/itiliti-tech/gh-template-settings-org-repo/compare/latest...main)
