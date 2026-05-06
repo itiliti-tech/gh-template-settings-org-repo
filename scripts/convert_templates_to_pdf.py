@@ -306,7 +306,7 @@ def md_to_html(md_text: str, logo_uri: str, version: str, gen_date: str) -> str:
 # ── Main ─────────────────────────────────────────────────────────────────────
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert policy template markdown files to PDFs using Edge headless."
+        description="Convert policy template markdown files to PDFs using WeasyPrint."
     )
     parser.add_argument(
         "--version",
