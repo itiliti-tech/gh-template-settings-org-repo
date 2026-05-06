@@ -431,7 +431,8 @@ def check_token(client: GitHubClient) -> set[str]:
     granted: set[str] = {s.strip() for s in scope_header.split(",") if s.strip()}
 
     print(f"\n  Token      : authenticated as {_c(login, _CYAN)}")
-    print(f"  Scopes     : {_c(', '.join(sorted(granted)) or '(none)', _CYAN)}")
+    scopes_summary = f"{len(granted)} granted" if granted else "(none)"
+    print(f"  Scopes     : {_c(scopes_summary, _CYAN)}")
 
     missing = _REQUIRED_SCOPES - granted
     if missing:
