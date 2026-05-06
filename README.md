@@ -148,11 +148,11 @@ bash scripts/lint-python.sh
 
 ## CI / GitHub Actions
 
-| Workflow                                         | Trigger                                  | What it does                                                               |
-| ------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------- |
-| `.github/workflows/lint.yml`                     | Push / PR to `main`                      | Lints all markdown and Python files                                        |
-| `.github/workflows/generate-pdfs.yml`            | Push a SemVer tag or manual run          | Generates PDFs, attaches to release, closes any open `release-needed` issue |
-| `.github/workflows/notify-release-needed.yml`    | Push to `main` touching `*.md` templates | Opens (or updates) a `release-needed` issue as a reminder to publish       |
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| `.github/workflows/lint.yml` | Push / PR to `main` | Lints all markdown and Python files |
+| `.github/workflows/generate-pdfs.yml` | Push a SemVer tag or manual run | Generates PDFs, attaches to release, closes any open `release-needed` issue |
+| `.github/workflows/notify-release-needed.yml` | Push to `main` touching `*.md` templates | Opens (or updates) a `release-needed` issue as a reminder to publish |
 
 ### Creating a release
 
