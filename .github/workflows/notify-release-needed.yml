@@ -51,23 +51,27 @@ jobs:
             --json number \
             --jq '.[0].number' 2>/dev/null || echo "")
 
-          BODY="### Policy templates changed — new release required
+          CHANGED_LIST=$(echo "$CHANGED" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- `/' | sed 's/$/`/')
+          BODY=$(cat <<EOF
+          ### Policy templates changed - new release required
 
-The following template file(s) were updated on \`main\` and the PDFs need to be regenerated:
+          The following template file(s) were updated on \`main\` and the PDFs need to be regenerated:
 
-$(echo "$CHANGED" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- `/' | sed 's/$/`/')
+          $CHANGED_LIST
 
-**Commit:** [$COMMIT_SHA]($COMMIT_URL)
-**Workflow run:** $RUN_URL
+          **Commit:** [$COMMIT_SHA]($COMMIT_URL)
+          **Workflow run:** $RUN_URL
 
-#### To close this issue, publish a new release:
+          #### To close this issue, publish a new release:
 
-\`\`\`bash
-git tag 1.x.y
-git push origin 1.x.y
-\`\`\`
+          \`\`\`bash
+          git tag 1.x.y
+          git push origin 1.x.y
+          \`\`\`
 
-The \`generate-pdfs\` workflow will build the PDFs, attach them to the release, and automatically close this issue."
+          The \`generate-pdfs\` workflow will build the PDFs, attach them to the release, and automatically close this issue.
+          EOF
+          )
 
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" \
