@@ -75,18 +75,50 @@ Valid tag formats: `1.0.0`, `2.3.1`, `1.0.0-alpha.1`, `1.0.0+build.42`
 
 These must be configured on every repository at creation time. They are not inherited from the org.
 
-### 2.1 Repository Custom Property — `lifecycle`
+### 2.1 Repository Custom Properties
 
-Every repository must have the `lifecycle` property set. This controls whether the Master Ruleset applies.
+These must be set on every repository. They are defined at the org level and selected per-repository via **Repository Settings → Custom properties**.
 
-| Value                | When to Use                                                         |
-| -------------------- | ------------------------------------------------------------------- |
-| `active` _(default)_ | Normal production or maintained repos — full org ruleset applies    |
-| `experimental`       | Proof-of-concept or exploratory repos — org branch ruleset excluded |
-| `archived`           | Read-only, no active development                                    |
-| `deprecated`         | Functionally replaced; pending archival or deletion                 |
+#### `lifecycle`
 
-> **Action:** Set via **Repository Settings → Custom properties** after creation.
+Controls whether the Master Ruleset applies. Required; default is `active`.
+
+| Value          | When to Use                                                         |
+| -------------- | ------------------------------------------------------------------- |
+| `active`       | Normal production or maintained repos — full org ruleset applies    |
+| `experimental` | Proof-of-concept or exploratory repos — org branch ruleset excluded |
+| `maintenance`  | Receiving fixes only; no new feature development                    |
+| `deprecated`   | Functionally replaced; pending archival or deletion                 |
+| `archived`     | Read-only, no active development                                    |
+
+#### `repo_type`
+
+Identifies the primary role of the repository. Required; default is `unclassified`.
+
+| Value             | When to Use                                              |
+| ----------------- | -------------------------------------------------------- |
+| `unclassified`    | Default — not yet categorised                            |
+| `service`         | A deployed service or API                                |
+| `library`         | A reusable package or SDK                                |
+| `integration`     | Connector, adapter, or third-party integration           |
+| `infrastructure`  | IaC, platform config, cloud resources                    |
+| `tooling`         | Internal developer tools, scripts, CI/CD infrastructure  |
+| `assembly`        | Application that composes multiple components            |
+| `configuration`   | Shared configuration or policy definitions               |
+| `documentation`   | Repos whose primary output is documentation content      |
+| `prototype`       | Experimental proof-of-concept, not production            |
+| `example`         | Reference or sample code                                 |
+| `archive`         | Preserved for reference; no active development           |
+
+#### `sensitivity`
+
+Indicates the sensitivity of the repository's contents. Required; default is `normal`.
+
+| Value    | When to Use                                             |
+| -------- | ------------------------------------------------------- |
+| `low`    | Public or non-sensitive content                         |
+| `normal` | Internal content with standard access controls          |
+| `high`   | Sensitive data, secrets adjacent, or regulated content  |
 
 ### 2.2 General Settings
 

@@ -143,15 +143,73 @@ None — **no bypasses**. Tag naming rules are universally enforced, including f
 
 ---
 
-## 5. Repository Custom Property — `lifecycle`
+## 5. Repository Custom Properties
 
-The Master Ruleset uses a custom repository property to exclude experimental repos from branch protection. Define this property at the org level.
+Define these properties at the org level. They must exist before the Master Ruleset references them.
 
-| Property    | Type          | Allowed Values                                     | Default  |
-| ----------- | ------------- | -------------------------------------------------- | -------- |
-| `lifecycle` | Single select | `active`, `experimental`, `archived`, `deprecated` | `active` |
+### 5.1 — `lifecycle`
+
+Indicates the current stage of the repository.
+
+| Property              | Value         |
+| --------------------- | ------------- |
+| Type                  | Single select |
+| Required              | Yes           |
+| Default               | `active`      |
+| Actor can set values  | No            |
+
+| Value          | When to Use                                                         |
+| -------------- | ------------------------------------------------------------------- |
+| `active`       | Normal production or maintained repos — full org ruleset applies    |
+| `experimental` | Proof-of-concept or exploratory repos — org branch ruleset excluded |
+| `maintenance`  | Receiving fixes only; no new feature development                    |
+| `deprecated`   | Functionally replaced; pending archival or deletion                 |
+| `archived`     | Read-only, no active development                                    |
 
 Repositories tagged `lifecycle = experimental` are excluded from the Master Ruleset, allowing faster iteration without governance overhead. All other repos receive full protection by default.
+
+### 5.2 — `repo_type`
+
+Identifies the primary role of the repository within the codebase.
+
+| Property              | Value                  |
+| --------------------- | ---------------------- |
+| Type                  | Single select          |
+| Required              | Yes                    |
+| Default               | `unclassified`         |
+| Actor can set values  | No                     |
+
+| Value             | When to Use                                              |
+| ----------------- | -------------------------------------------------------- |
+| `unclassified`    | Default — not yet categorised                            |
+| `service`         | A deployed service or API                                |
+| `library`         | A reusable package or SDK                                |
+| `integration`     | Connector, adapter, or third-party integration           |
+| `infrastructure`  | IaC, platform config, cloud resources                    |
+| `tooling`         | Internal developer tools, scripts, CI/CD infrastructure  |
+| `assembly`        | Application that composes multiple components            |
+| `configuration`   | Shared configuration or policy definitions               |
+| `documentation`   | Repos whose primary output is documentation content      |
+| `prototype`       | Experimental proof-of-concept, not production            |
+| `example`         | Reference or sample code                                 |
+| `archive`         | Preserved for reference; no active development           |
+
+### 5.3 — `sensitivity`
+
+Indicates the sensitivity of the repository's contents to guide access, sharing, and security controls.
+
+| Property              | Value         |
+| --------------------- | ------------- |
+| Type                  | Single select |
+| Required              | Yes           |
+| Default               | `normal`      |
+| Actor can set values  | No            |
+
+| Value    | When to Use                                             |
+| -------- | ------------------------------------------------------- |
+| `low`    | Public or non-sensitive content                         |
+| `normal` | Internal content with standard access controls          |
+| `high`   | Sensitive data, secrets adjacent, or regulated content  |
 
 ---
 
