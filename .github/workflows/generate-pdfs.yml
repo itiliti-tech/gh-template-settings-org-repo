@@ -18,6 +18,7 @@ jobs:
 
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout
@@ -70,3 +71,20 @@ jobs:
           gh release create "$TAG" dist/*.pdf \
             --generate-notes \
             "${ARGS[@]}"
+
+      - name: Close release-needed issue
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && steps.version.outputs.version != '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.version }}
+        run: |
+          ISSUE=$(gh issue list \
+            --label "release-needed" \
+            --state open \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$ISSUE" ]; then
+            gh issue close "$ISSUE" \
+              --comment "PDFs regenerated and attached to release \`$TAG\`. Closing."
+            echo "Closed issue #$ISSUE"
+          fi

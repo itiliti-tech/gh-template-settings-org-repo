@@ -9,4 +9,4 @@ if ! command -v markdownlint-cli2 &>/dev/null; then
   exit 1
 fi
 
-markdownlint-cli2 "**/*.md" "#node_modules"
+markdownlint-cli2 "**/*.md" "#node_modules" "#.venv"
