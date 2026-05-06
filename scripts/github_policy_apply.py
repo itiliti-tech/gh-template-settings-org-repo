@@ -212,9 +212,9 @@ REPO_TYPE_PROPERTY: dict[str, Any] = {
     "required": True,
     "description": "Identifies the primary role of the repository within the codebase.",
     "allowed_values": [
-        "service", "library", "integration", "infrastructure",
-        "tooling", "assembly", "configuration", "documentation",
-        "prototype", "example", "archive", "unclassified",
+        "unclassified", "application", "service", "library",
+        "integration", "infrastructure", "tooling",
+        "configuration", "documentation", "example",
     ],
     "default_value": "unclassified",
 }
@@ -788,9 +788,12 @@ def _ruleset_matches(existing: dict | None, desired: dict) -> bool:
 def _property_matches(existing: dict | None, desired: dict) -> bool:
     if not existing:
         return False
+    # allowed_values: desired must be a subset of existing (extra values are fine)
+    desired_vals = set(desired.get("allowed_values") or [])
+    existing_vals = set(existing.get("allowed_values") or [])
     return (
         existing.get("value_type") == desired["value_type"]
-        and set(existing.get("allowed_values") or []) == set(desired.get("allowed_values") or [])
+        and desired_vals <= existing_vals
         and existing.get("default_value") == desired.get("default_value")
         and existing.get("required") == desired.get("required")
         and existing.get("description") == desired.get("description")
@@ -1123,10 +1126,18 @@ def apply_org_changes(client: GitHubClient, org: str, approved: list[ChangeRecor
     if "custom_properties" in groups:
         for c in groups["custom_properties"]:
             prop_name = c["desired"]["property_name"]
-            payload = {"properties": [c["desired"]]}
+            # Merge existing allowed_values with desired — never remove values
+            # that may still be in use on repos.
+            desired_prop = dict(c["desired"])
+            existing_vals = set((c["current"] or {}).get("allowed_values") or [])
+            merged_vals = list(existing_vals | set(desired_prop.get("allowed_values") or []))
+            desired_prop["allowed_values"] = merged_vals
+            payload = {"properties": [desired_prop]}
             code, resp = client.patch(f"/orgs/{org}/properties/schema", payload)
             if code in (200, 201):
-                print(f"  ✓  Custom property '{prop_name}' configured")
+                added = set(merged_vals) - existing_vals
+                print(f"  ✓  Custom property '{prop_name}' configured"
+                      + (f" (+{sorted(added)})" if added else ""))
             else:
                 _report_error(f"PATCH properties/schema ({c['label']})", code, resp)
 

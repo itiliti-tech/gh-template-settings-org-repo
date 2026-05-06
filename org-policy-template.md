@@ -182,17 +182,15 @@ Identifies the primary role of the repository within the codebase.
 | Value             | When to Use                                              |
 | ----------------- | -------------------------------------------------------- |
 | `unclassified`    | Default — not yet categorised                            |
-| `service`         | A deployed service or API                                |
+| `application`     | Web or desktop application                               |
+| `service`         | A deployed API or background service                     |
 | `library`         | A reusable package or SDK                                |
 | `integration`     | Connector, adapter, or third-party integration           |
 | `infrastructure`  | IaC, platform config, cloud resources                    |
 | `tooling`         | Internal developer tools, scripts, CI/CD infrastructure  |
-| `assembly`        | Application that composes multiple components            |
 | `configuration`   | Shared configuration or policy definitions               |
 | `documentation`   | Repos whose primary output is documentation content      |
-| `prototype`       | Experimental proof-of-concept, not production            |
-| `example`         | Reference or sample code                                 |
-| `archive`         | Preserved for reference; no active development           |
+| `example`         | Reference, sample, or prototype code                     |
 
 ### 5.3 — `sensitivity`
 
