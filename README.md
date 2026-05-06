@@ -1,5 +1,11 @@
 # GitHub Policy Templates
 
+[![Lint](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/lint.yml)
+[![Generate PDFs](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/generate-pdfs.yml/badge.svg)](https://github.com/itiliti-tech/gh-template-settings-org-repo/actions/workflows/generate-pdfs.yml)
+[![Latest Release](https://img.shields.io/github/v/release/itiliti-tech/gh-template-settings-org-repo?label=release)](https://github.com/itiliti-tech/gh-template-settings-org-repo/releases/latest)
+[![Commits since release](https://img.shields.io/github/commits-since/itiliti-tech/gh-template-settings-org-repo/latest?label=unreleased+commits)](https://github.com/itiliti-tech/gh-template-settings-org-repo/compare/latest...main)
+[![Release needed](https://img.shields.io/github/issues/itiliti-tech/gh-template-settings-org-repo/release-needed?label=release+needed&color=yellow)](https://github.com/itiliti-tech/gh-template-settings-org-repo/issues?q=is%3Aopen+label%3Arelease-needed)
+
 Best-practices documentation and tooling for configuring GitHub organizations and
 repositories to a consistent, secure baseline.
 
@@ -142,10 +148,11 @@ bash scripts/lint-python.sh
 
 ## CI / GitHub Actions
 
-| Workflow                              | Trigger                         | What it does                                             |
-| ------------------------------------- | ------------------------------- | -------------------------------------------------------- |
-| `.github/workflows/lint.yml`          | Push / PR to any branch         | Lints all markdown and Python files                      |
-| `.github/workflows/generate-pdfs.yml` | Push a SemVer tag or manual run | Generates PDFs, uploads as artifact, attaches to release |
+| Workflow                                         | Trigger                                  | What it does                                                               |
+| ------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------- |
+| `.github/workflows/lint.yml`                     | Push / PR to `main`                      | Lints all markdown and Python files                                        |
+| `.github/workflows/generate-pdfs.yml`            | Push a SemVer tag or manual run          | Generates PDFs, attaches to release, closes any open `release-needed` issue |
+| `.github/workflows/notify-release-needed.yml`    | Push to `main` touching `*.md` templates | Opens (or updates) a `release-needed` issue as a reminder to publish       |
 
 ### Creating a release
 
