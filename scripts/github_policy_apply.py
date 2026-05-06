@@ -196,15 +196,36 @@ WORKFLOW_PERMISSION_SETTINGS: dict[str, Any] = {
     "can_approve_pull_request_reviews": False,
 }
 
-# Desired lifecycle custom property definition
-# Note: GitHub rejects default_value on non-required single_select properties;
-# omit the key entirely to avoid a 422 Validation Failed.
+# Custom property definitions.
 LIFECYCLE_PROPERTY: dict[str, Any] = {
     "property_name": "lifecycle",
     "value_type": "single_select",
-    "required": False,
-    "description": "Repository lifecycle stage",
-    "allowed_values": ["active", "experimental", "archived", "deprecated"],
+    "required": True,
+    "description": "Indicates the current stage of the repository, such as active, experimental, or archived.",
+    "allowed_values": ["active", "experimental", "maintenance", "deprecated", "archived"],
+    "default_value": "active",
+}
+
+REPO_TYPE_PROPERTY: dict[str, Any] = {
+    "property_name": "repo_type",
+    "value_type": "single_select",
+    "required": True,
+    "description": "Identifies the primary role of the repository within the codebase.",
+    "allowed_values": [
+        "unclassified", "application", "service", "library",
+        "integration", "infrastructure", "tooling",
+        "configuration", "documentation", "example",
+    ],
+    "default_value": "unclassified",
+}
+
+SENSITIVITY_PROPERTY: dict[str, Any] = {
+    "property_name": "sensitivity",
+    "value_type": "single_select",
+    "required": True,
+    "description": "Indicates the sensitivity of the repository's contents to guide access, sharing, and security controls.",
+    "allowed_values": ["low", "normal", "high"],
+    "default_value": "normal",
 }
 
 # Master Ruleset — branch protection for all default branches
@@ -545,23 +566,26 @@ def compute_org_changes(
         })
 
     # ── PUT /orgs/{org}/actions/permissions ──────────────────────────────────
+    # allowed_actions='none' is the script sentinel meaning "leave as-is" —
+    # it is NOT a valid API value. Only generate change records when a real
+    # mode (all / local_only / selected) was explicitly requested.
     ap = current.get("actions_permissions", {})
-    # Merge baseline with the runtime --allowed-actions choice
-    effective_ap_settings = {**ACTIONS_PERMISSION_SETTINGS, "allowed_actions": allowed_actions}
-    for field, desired_val in effective_ap_settings.items():
-        curr_val = ap.get(field)
-        changes.append({
-            "section": "Actions",
-            "label": f"Actions: {field.replace('_', ' ')}",
-            "setting": field,
-            "api_endpoint": "PUT /orgs/{org}/actions/permissions",
-            "current": curr_val,
-            "desired": desired_val,
-            "note": "",
-            "ghas_required": False,
-            "skip": curr_val == desired_val,
-            "_apply_group": "actions_permissions",
-        })
+    if allowed_actions != "none":
+        effective_ap_settings = {**ACTIONS_PERMISSION_SETTINGS, "allowed_actions": allowed_actions}
+        for field, desired_val in effective_ap_settings.items():
+            curr_val = ap.get(field)
+            changes.append({
+                "section": "Actions",
+                "label": f"Actions: {field.replace('_', ' ')}",
+                "setting": field,
+                "api_endpoint": "PUT /orgs/{org}/actions/permissions",
+                "current": curr_val,
+                "desired": desired_val,
+                "note": "",
+                "ghas_required": False,
+                "skip": curr_val == desired_val,
+                "_apply_group": "actions_permissions",
+            })
 
     # ── PUT /orgs/{org}/actions/permissions/selected-actions ─────────────────
     # Only meaningful (and applicable) when allowed_actions = 'selected'
@@ -603,22 +627,29 @@ def compute_org_changes(
             "_apply_group": "workflow_permissions",
         })
 
-    # ── Custom property: lifecycle (must exist before Master Ruleset) ─────────
+    # ── Custom properties (must exist before Master Ruleset) ─────────────────
     existing_props = {p.get("property_name"): p for p in (current.get("custom_properties") or [])}
-    prop_exists = "lifecycle" in existing_props
-    lifecycle_match = _property_matches(existing_props.get("lifecycle"), LIFECYCLE_PROPERTY)
-    changes.append({
-        "section": "Custom Properties",
-        "label": "Custom property: lifecycle",
-        "setting": "property:lifecycle",
-        "api_endpoint": "PATCH /orgs/{org}/properties/schema",
-        "current": existing_props.get("lifecycle"),
-        "desired": LIFECYCLE_PROPERTY,
-        "note": ("Update if values differ" if prop_exists else "Create — required by Master Ruleset"),
-        "ghas_required": False,
-        "skip": lifecycle_match,
-        "_apply_group": "custom_properties",
-    })
+
+    for prop_def, note_suffix in [
+        (LIFECYCLE_PROPERTY, "required by Master Ruleset"),
+        (REPO_TYPE_PROPERTY, "classifies repository purpose"),
+        (SENSITIVITY_PROPERTY, "classifies data sensitivity"),
+    ]:
+        name = prop_def["property_name"]
+        prop_exists = name in existing_props
+        match = _property_matches(existing_props.get(name), prop_def)
+        changes.append({
+            "section": "Custom Properties",
+            "label": f"Custom property: {name}",
+            "setting": f"property:{name}",
+            "api_endpoint": "PATCH /orgs/{org}/properties/schema",
+            "current": existing_props.get(name),
+            "desired": prop_def,
+            "note": ("Update if values differ" if prop_exists else f"Create — {note_suffix}"),
+            "ghas_required": False,
+            "skip": match,
+            "_apply_group": "custom_properties",
+        })
 
     # ── Org rulesets ──────────────────────────────────────────────────────────
     existing_rulesets = {r.get("name"): r for r in (current.get("rulesets") or [])}
@@ -757,10 +788,15 @@ def _ruleset_matches(existing: dict | None, desired: dict) -> bool:
 def _property_matches(existing: dict | None, desired: dict) -> bool:
     if not existing:
         return False
+    # allowed_values: desired must be a subset of existing (extra values are fine)
+    desired_vals = set(desired.get("allowed_values") or [])
+    existing_vals = set(existing.get("allowed_values") or [])
     return (
         existing.get("value_type") == desired["value_type"]
-        and set(existing.get("allowed_values") or []) == set(desired.get("allowed_values") or [])
+        and desired_vals <= existing_vals
         and existing.get("default_value") == desired.get("default_value")
+        and existing.get("required") == desired.get("required")
+        and existing.get("description") == desired.get("description")
     )
 
 
@@ -1089,10 +1125,19 @@ def apply_org_changes(client: GitHubClient, org: str, approved: list[ChangeRecor
     # 5. Custom property (must exist before Master Ruleset references it)
     if "custom_properties" in groups:
         for c in groups["custom_properties"]:
-            payload = {"properties": [c["desired"]]}
+            prop_name = c["desired"]["property_name"]
+            # Merge existing allowed_values with desired — never remove values
+            # that may still be in use on repos.
+            desired_prop = dict(c["desired"])
+            existing_vals = set((c["current"] or {}).get("allowed_values") or [])
+            merged_vals = list(existing_vals | set(desired_prop.get("allowed_values") or []))
+            desired_prop["allowed_values"] = merged_vals
+            payload = {"properties": [desired_prop]}
             code, resp = client.patch(f"/orgs/{org}/properties/schema", payload)
             if code in (200, 201):
-                print("  ✓  Custom property 'lifecycle' configured")
+                added = set(merged_vals) - existing_vals
+                print(f"  ✓  Custom property '{prop_name}' configured"
+                      + (f" (+{sorted(added)})" if added else ""))
             else:
                 _report_error(f"PATCH properties/schema ({c['label']})", code, resp)
 
